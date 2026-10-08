@@ -1,7 +1,7 @@
 # Maintainer: openOODA-tools <ops@openooda.org>
 pkgname=oocol-bin
 _pkgname=oocol
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="Reverse line feed filter removing backspaces and half-line feeds from terminal output."
 arch=('x86_64')

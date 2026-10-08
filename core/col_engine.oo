@@ -1,0 +1,208 @@
+// # oocol Core Escape Filtering Engine
+//
+// Logline: Stream processor resolving backspaces, reverse line feeds, and space/tab conversions.
+//
+// Setup: Demands pure string manipulation and optional FsReadCap to ingest file buffers.
+//
+// Beats:
+//   1. Build line buffer tracking column coordinates and overstrike replacements.
+//   2. Compress space runs into horizontal tabstops where requested.
+//   3. Dispatch special filtering modes for backspaces and manual pages.
+//   4. Deliver capability-bounded file ingestion and filter execution.
+
+import "core/col_types.oo";
+
+fn flush_line(line_cells: List[String], compress_spaces: Bool, expand_tabs: Bool) -> String {
+    let mut end: Int = list_len(line_cells);
+    while end > 0 && list_get(line_cells, end - 1) == " " {
+        end = end - 1;
+    }
+    if end == 0 {
+        return "";
+    }
+
+    if !compress_spaces || expand_tabs {
+        let mut out: String = "";
+        let mut i: Int = 0;
+        while i < end {
+            out = out + list_get(line_cells, i);
+            i = i + 1;
+        }
+        return out;
+    }
+
+    let mut out: String = "";
+    let mut i: Int = 0;
+    while i < end {
+        let ch: String = list_get(line_cells, i);
+        if ch == " " {
+            let next_tab: Int = ((i / 8) + 1) * 8;
+            let target: Int = if next_tab < end { next_tab } else { end };
+            let mut all_spaces: Bool = true;
+            let mut j: Int = i;
+            while j < target {
+                if list_get(line_cells, j) != " " {
+                    all_spaces = false;
+                    break;
+                }
+                j = j + 1;
+            }
+            if all_spaces && (target == next_tab) && (target - i >= 2) {
+                out = out + "\t";
+                i = next_tab;
+            } else {
+                out = out + " ";
+                i = i + 1;
+            }
+        } else {
+            out = out + ch;
+            i = i + 1;
+        }
+    }
+    return out;
+}
+
+pub fn filter_text_with_stats(input: String, opts: ColOpts) -> FilterResult {
+    let n: Int = chars_len(input);
+    let mut out: String = "";
+    let mut line_cells: List[String] = list_new();
+    let mut col: Int = 0;
+
+    let mut in_bytes: Int = n;
+    let mut bs_removed: Int = 0;
+    let mut overstrikes: Int = 0;
+    let mut tabs_exp: Int = 0;
+    let mut tabs_comp: Int = 0;
+
+    let mut i: Int = 0;
+    while i < n {
+        let ch_code: Int = byte_at(input, i);
+
+        if ch_code == 10 {
+            // Newline: flush line
+            let flushed: String = flush_line(line_cells, opts.compress_spaces, opts.expand_tabs);
+            out = out + flushed + "\n";
+            line_cells = list_new();
+            col = 0;
+            i = i + 1;
+        } else if ch_code == 13 {
+            // Carriage return: reset column to 0
+            col = 0;
+            i = i + 1;
+        } else if ch_code == 8 {
+            // Backspace
+            if col > 0 {
+                col = col - 1;
+            }
+            bs_removed = bs_removed + 1;
+            i = i + 1;
+        } else if ch_code == 9 {
+            // Horizontal Tab
+            let next_tab: Int = ((col / 8) + 1) * 8;
+            tabs_exp = tabs_exp + 1;
+            while col < next_tab {
+                if col >= list_len(line_cells) {
+                    line_cells = list_push(line_cells, " ");
+                }
+                col = col + 1;
+            }
+            i = i + 1;
+        } else if ch_code == 27 {
+            // Escape sequences
+            if opts.pass_control {
+                let esc_str: String = bytes_to_str(bytes_push(bytes_new(), 27));
+                out = out + esc_str;
+                i = i + 1;
+            } else {
+                // Check CSI or 2-char escape
+                if i + 1 < n {
+                    let next_ch: Int = byte_at(input, i + 1);
+                    if next_ch == 91 {
+                        // ANSI CSI: skip until terminating character (64..126)
+                        i = i + 2;
+                        while i < n && (byte_at(input, i) < 64 || byte_at(input, i) > 126) {
+                            i = i + 1;
+                        }
+                        if i < n { i = i + 1; }
+                    } else {
+                        // ESC 7, ESC 8, ESC 9 or other 2-char sequence
+                        i = i + 2;
+                    }
+                } else {
+                    i = i + 1;
+                }
+            }
+        } else {
+            // Printable or non-control character
+            let s: String = bytes_to_str(bytes_push(bytes_new(), ch_code));
+
+            // Pad cells with spaces up to current column
+            while list_len(line_cells) < col {
+                line_cells = list_push(line_cells, " ");
+            }
+
+            if col < list_len(line_cells) {
+                // Overstrike position
+                let prev: String = list_get(line_cells, col);
+                if prev != " " {
+                    overstrikes = overstrikes + 1;
+                    if opts.no_backspaces {
+                        // Underline resolution: if one of them is underscore, prefer the letter
+                        if prev == "_" && s != "_" {
+                            line_cells = list_set(line_cells, col, s);
+                        } else if s == "_" && prev != " " {
+                            // keep prev
+                        } else {
+                            // Normal overstrike: last character wins
+                            line_cells = list_set(line_cells, col, s);
+                        }
+                    } else {
+                        line_cells = list_set(line_cells, col, prev + "\b" + s);
+                    }
+                } else {
+                    line_cells = list_set(line_cells, col, s);
+                }
+            } else {
+                line_cells = list_push(line_cells, s);
+            }
+            col = col + 1;
+            i = i + 1;
+        }
+    }
+
+    // Flush any pending line content
+    if list_len(line_cells) > 0 {
+        let flushed: String = flush_line(line_cells, opts.compress_spaces, opts.expand_tabs);
+        out = out + flushed;
+    }
+
+    let stats: ColStats = make_col_stats(in_bytes, chars_len(out), bs_removed, overstrikes, tabs_exp, tabs_comp);
+    return make_filter_result(out, stats);
+}
+
+pub fn filter_text(input: String, opts: ColOpts) -> String {
+    let res: FilterResult = filter_text_with_stats(input, opts);
+    return res.output;
+}
+
+pub fn strip_backspaces(input: String) -> String {
+    let mut opts: ColOpts = make_default_col_opts();
+    opts.no_backspaces = true;
+    return filter_text(input, opts);
+}
+
+pub fn clean_man_page(input: String) -> String {
+    let mut opts: ColOpts = make_default_col_opts();
+    opts.no_backspaces = true;
+    opts.pass_control = false;
+    return filter_text(input, opts);
+}
+
+pub fn filter_file(fs: &FsReadCap, path: String, opts: ColOpts) -> Result[FilterResult, String] {
+    let r: Result[String, String] = read_file(fs, path);
+    if !r.is_ok() {
+        return Err("oocol: cannot read '" + path + "'");
+    }
+    let content: String = match r { Ok(s) => s, Err(_) => "" };
+    return Ok(filter_text_with_stats(content, opts));
+}

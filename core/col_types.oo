@@ -1,0 +1,99 @@
+// # oocol Escape Filter Data Types
+//
+// Logline: Data structures for filter configuration, character cells, and operational statistics.
+//
+// Setup: Encapsulates terminal filtering options, overstrike resolution policies, and telemetry records.
+//
+// Beats:
+//   1. Declare ColOpts configuration structure for CLI and MCP options.
+//   2. Declare ColStats record for transformation telemetry and metrics.
+//   3. Declare LineBuffer structure for row-based cell manipulation.
+//   4. Supply constructors for option defaults and telemetry accumulators.
+
+pub type ColOpts = struct {
+    no_backspaces: Bool,
+    pass_control: Bool,
+    expand_tabs: Bool,
+    compress_spaces: Bool,
+    fine_half_lines: Bool,
+    max_lines: Int
+};
+
+pub fn make_default_col_opts() -> ColOpts {
+    return ColOpts {
+        no_backspaces: false,
+        pass_control: false,
+        expand_tabs: false,
+        compress_spaces: false,
+        fine_half_lines: false,
+        max_lines: 128
+    };
+}
+
+pub fn make_col_opts(
+    no_backspaces: Bool,
+    pass_control: Bool,
+    expand_tabs: Bool,
+    compress_spaces: Bool,
+    fine_half_lines: Bool,
+    max_lines: Int
+) -> ColOpts {
+    return ColOpts {
+        no_backspaces: no_backspaces,
+        pass_control: pass_control,
+        expand_tabs: expand_tabs,
+        compress_spaces: compress_spaces,
+        fine_half_lines: fine_half_lines,
+        max_lines: max_lines
+    };
+}
+
+pub type ColStats = struct {
+    input_bytes: Int,
+    output_bytes: Int,
+    backspaces_removed: Int,
+    overstrikes_resolved: Int,
+    tabs_expanded: Int,
+    tabs_compressed: Int
+};
+
+pub fn make_empty_col_stats() -> ColStats {
+    return ColStats {
+        input_bytes: 0,
+        output_bytes: 0,
+        backspaces_removed: 0,
+        overstrikes_resolved: 0,
+        tabs_expanded: 0,
+        tabs_compressed: 0
+    };
+}
+
+pub fn make_col_stats(
+    in_bytes: Int,
+    out_bytes: Int,
+    bs_removed: Int,
+    overstrikes: Int,
+    tabs_exp: Int,
+    tabs_comp: Int
+) -> ColStats {
+    return ColStats {
+        input_bytes: in_bytes,
+        output_bytes: out_bytes,
+        backspaces_removed: bs_removed,
+        overstrikes_resolved: overstrikes,
+        tabs_expanded: tabs_exp,
+        tabs_compressed: tabs_comp
+    };
+}
+
+pub type FilterResult = struct {
+    output: String,
+    stats: ColStats
+};
+
+pub fn make_filter_result(output: String, stats: ColStats) -> FilterResult {
+    return FilterResult {
+        output: output,
+        stats: stats
+    };
+}

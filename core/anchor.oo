@@ -1,0 +1,54 @@
+// # oocol Core Verification Anchor
+//
+// Logline: Subsystem verification anchor certifying overstrike stripping, tab alignment, and engine invariants.
+//
+// Setup: Validates escape filter behaviors against deterministic synthetic fixtures.
+//
+// Beats:
+//   1. Assert bold overstrike stripping yields clean text.
+//   2. Assert underline resolution extracts underlying characters.
+//   3. Assert tab expansion advances cursor to 8-column boundaries.
+//   4. Assert carriage return overwrites preceding text correctly.
+
+import "core/col_types.oo";
+import "core/col_engine.oo";
+import "core/col_demo.oo";
+
+pub fn verify_core_subsystem() -> Bool {
+    // 1. Bold overstrike test
+    let bold_raw: String = build_demo_bold_raw();
+    let mut opts_b: ColOpts = make_default_col_opts();
+    opts_b.no_backspaces = true;
+    let bold_res: FilterResult = filter_text_with_stats(bold_raw, opts_b);
+    if bold_res.output != "This is bold\n" {
+        return false;
+    }
+    if bold_res.stats.overstrikes_resolved != 12 {
+        return false;
+    }
+
+    // 2. Underline test
+    let under_raw: String = build_demo_underline_raw();
+    let under_res: FilterResult = filter_text_with_stats(under_raw, opts_b);
+    if under_res.output != "underlined\n" {
+        return false;
+    }
+
+    // 3. Tab expansion test
+    let mut opts_x: ColOpts = make_default_col_opts();
+    opts_x.expand_tabs = true;
+    let tab_raw: String = "a\tb\n";
+    let tab_res: FilterResult = filter_text_with_stats(tab_raw, opts_x);
+    if tab_res.output != "a       b\n" {
+        return false;
+    }
+
+    // 4. Carriage return test
+    let cr_raw: String = "abcdef\r123\n";
+    let cr_res: FilterResult = filter_text_with_stats(cr_raw, opts_b);
+    if cr_res.output != "123def\n" {
+        return false;
+    }
+
+    return true;
+}

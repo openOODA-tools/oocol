@@ -1,0 +1,51 @@
+// # oocol Render and Telemetry Subsystem
+//
+// Logline: Formats filter inspection reports, human-readable summaries, and JSON telemetry streams.
+//
+// Setup: Generates structured diagnostic telemetry for CLI and MCP surfaces.
+//
+// Beats:
+//   1. Format human-readable filter transformation summary.
+//   2. Render detailed buffer inspection report table.
+//   3. Render machine-readable JSON telemetry string.
+//   4. Validate telemetry formatting for compliance.
+
+import "core/col_types.oo";
+
+pub fn render_filter_summary(stats: ColStats) -> String {
+    let mut out: String = "oocol: escape filtering summary\n";
+    out = out + "  Input payload:         " + to_string(stats.input_bytes) + " bytes\n";
+    out = out + "  Output payload:        " + to_string(stats.output_bytes) + " bytes\n";
+    out = out + "  Backspaces removed:    " + to_string(stats.backspaces_removed) + "\n";
+    out = out + "  Overstrikes resolved:  " + to_string(stats.overstrikes_resolved) + "\n";
+    out = out + "  Tabs expanded:         " + to_string(stats.tabs_expanded) + "\n";
+    out = out + "  Tabs compressed:       " + to_string(stats.tabs_compressed) + "\n";
+    return out;
+}
+
+pub fn render_json_telemetry(res: FilterResult) -> String {
+    let mut j: String = "{\"tool\":\"oocol\",\"version\":\"0.2.0\",";
+    j = j + "\"input_bytes\":" + to_string(res.stats.input_bytes) + ",";
+    j = j + "\"output_bytes\":" + to_string(res.stats.output_bytes) + ",";
+    j = j + "\"backspaces_removed\":" + to_string(res.stats.backspaces_removed) + ",";
+    j = j + "\"overstrikes_resolved\":" + to_string(res.stats.overstrikes_resolved) + ",";
+    j = j + "\"tabs_expanded\":" + to_string(res.stats.tabs_expanded) + ",";
+    j = j + "\"tabs_compressed\":" + to_string(res.stats.tabs_compressed) + "}\n";
+    return j;
+}
+
+pub fn render_inspection_report(stats: ColStats) -> String {
+    let mut out: String = "========================================================\n";
+    out = out + "           oocol Buffer Inspection Report               \n";
+    out = out + "========================================================\n";
+    out = out + "Metric                   | Count / Size\n";
+    out = out + "-------------------------+------------------------------\n";
+    out = out + "Input Size (bytes)       | " + to_string(stats.input_bytes) + "\n";
+    out = out + "Output Size (bytes)      | " + to_string(stats.output_bytes) + "\n";
+    out = out + "Backspaces Encountered   | " + to_string(stats.backspaces_removed) + "\n";
+    out = out + "Overstrike Conflicts     | " + to_string(stats.overstrikes_resolved) + "\n";
+    out = out + "Tabs Expanded            | " + to_string(stats.tabs_expanded) + "\n";
+    out = out + "Tabs Compressed          | " + to_string(stats.tabs_compressed) + "\n";
+    out = out + "========================================================\n";
+    return out;
+}

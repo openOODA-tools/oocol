@@ -1,0 +1,65 @@
+// # oocol IPC Verification Anchor
+//
+// Logline: Verification anchor certifying JSON field parsing, CLI options decoding, and MCP server dispatch.
+//
+// Setup: Validates IPC message framing and tool dispatch under synthetic requests.
+//
+// Beats:
+//   1. Assert JSON string escaping and integer extraction.
+//   2. Assert CLI options parsing for filter flags.
+//   3. Assert MCP initialize and tools list generation.
+//   4. Assert MCP tool execution on synthetic buffers.
+
+import "ipc/json_field.oo";
+import "ipc/col_opts.oo";
+import "ipc/mcp_serve.oo";
+
+pub fn verify_ipc_subsystem(fs: &FsReadCap) -> Bool {
+    // 1. JSON parsing test
+    let json_sample: String = "{\"tool\":\"oocol\",\"lines\":256,\"status\":\"ok\"}";
+    let tool_str: String = extract_json_str(json_sample, "tool");
+    if tool_str != "oocol" {
+        return false;
+    }
+    let lines_val: Int = extract_json_int(json_sample, "lines", 0);
+    if lines_val != 256 {
+        return false;
+    }
+
+    // 2. Options parsing test
+    let mut args: List[String] = list_new();
+    args = list_push(args, "-b");
+    args = list_push(args, "-x");
+    args = list_push(args, "-l");
+    args = list_push(args, "512");
+    args = list_push(args, "sample.txt");
+
+    let opts: ColCliOpts = parse_cli_args(args);
+    if !opts.no_backspaces || !opts.expand_tabs {
+        return false;
+    }
+    if opts.max_lines != 512 || opts.file_path != "sample.txt" {
+        return false;
+    }
+
+    // 3. MCP initialize test
+    let init_resp: String = render_mcp_init("1");
+    if !str_contains(init_resp, "\"serverInfo\":{\"name\":\"oocol\"") {
+        return false;
+    }
+
+    // 4. MCP tools/list test
+    let tools_resp: String = render_mcp_tools_list("2");
+    if !str_contains(tools_resp, "col_filter") || !str_contains(tools_resp, "col_strip_backspaces") {
+        return false;
+    }
+
+    // 5. MCP tool call dispatch test
+    let req: String = "{\"text\":\"T\\bTh\\bhi\\bis\\bs\"}";
+    let res: String = handle_mcp_call(fs, "3", "col_strip_backspaces", req);
+    if !str_contains(res, "This") {
+        return false;
+    }
+
+    return true;
+}

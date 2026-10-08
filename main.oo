@@ -1,52 +1,141 @@
 // # oocol Main Entry Point
 //
-// Logline: Reverse line feed filter removing backspaces and half-line feeds from terminal output.
+// Logline: Sovereign escape filter removing backspaces, half-line feeds, and overstrikes from terminal streams.
 //
-// Setup: Demands explicit capability tokens and standard argument list.
+// Setup: Demands explicit FsReadCap, ProcessCap, and EnvCap tokens under negative-trust boundaries.
 //
 // Beats:
-//   1. Parse command-line options and dispatch --help, --version, or --mcp.
-//   2. Execute capability-bounded oocol operations.
-//   3. Format and output structured results to standard output.
+//   1. Parse command-line options and dispatch help, version, and demo handlers.
+//   2. Run Model Context Protocol (MCP) streaming JSON-RPC server on --mcp.
+//   3. Ingest stream from file path or standard input under FsReadCap.
+//   4. Apply column overstrike resolution, tab conversion, and render output.
 
-fn render_help() -> String {
-    return "oocol 0.1.0 (openOODA sovereign search & inspection)\n"
-        + "usage: oocol [options] [ARGUMENTS]...\n\n"
-        + "Reverse line feed filter removing backspaces and half-line feeds from terminal output.\n\n"
+import "core/col_types.oo";
+import "core/col_engine.oo";
+import "core/col_demo.oo";
+import "render/col_theme.oo";
+import "ipc/col_opts.oo";
+import "ipc/mcp_serve.oo";
+import "anchor.oo";
+
+pub fn render_help() -> String {
+    return "oocol 0.2.0 (openOODA sovereign terminal & escape filter)\n"
+        + "usage: oocol [options] [FILE]\n\n"
+        + "Filter reverse line feeds, backspaces, and overstrikes from terminal output.\n\n"
         + "Options:\n"
-        + "  -h, --help           display this help and exit\n"
-        + "  -v, --version        output version information and exit\n"
-        + "      --json           output formatted as JSON Lines\n"
-        + "      --color <WHEN>   colorize output: auto, always, never [default: auto]\n"
-        + "      --theme <NAME>   override active oote palette\n"
-        + "      --mcp            run as Model Context Protocol stdio server\n";
+        + "  -b, --no-backspaces    do not output backspaces; resolve overstrikes\n"
+        + "  -f, --fine             permit forward half line feeds\n"
+        + "  -p, --pass             pass unknown control sequences through\n"
+        + "  -x, --spaces           do not convert spaces to tabs (expand tabs)\n"
+        + "  -h, --tabs             compress multiple spaces into tabs\n"
+        + "  -l, --lines=NUM        buffer at most NUM lines in memory\n"
+        + "      --inspect          display buffer inspection telemetry report\n"
+        + "      --demo             run demonstration scenario with synthetic overstrikes\n"
+        + "      --json             output formatted as JSON telemetry\n"
+        + "  -h, --help             display this help and exit\n"
+        + "  -v, -V, --version      output version information and exit\n"
+        + "      --mcp              run as Model Context Protocol stdio server\n";
 }
 
-fn render_version() -> String {
-    return "oocol 0.1.0 (openOODA sovereign search & inspection)\n";
+pub fn render_version() -> String {
+    return "oocol 0.2.0 (openOODA sovereign terminal & escape filter)\n";
 }
 
-fn main(args: List[String]) -> Int {
-    let num_args: Int = list_len(args);
-    let mut i: Int = 0;
+fn read_all_stdin(fs: &FsReadCap) -> String {
+    let mut acc: String = "";
+    let mut running: Bool = true;
+    while running {
+        let r: Result[String, String] = oo_read_stdin_chunk(fs, 4096);
+        if !r.is_ok() {
+            running = false;
+        } else {
+            let chunk: String = match r { Ok(s) => s, Err(_) => "" };
+            if chars_len(chunk) == 0 {
+                running = false;
+            } else {
+                acc = acc + chunk;
+            }
+        }
+    }
+    return acc;
+}
 
-    while i < num_args {
-        let arg: String = list_get(args, i);
-        if arg == "-h" || arg == "--help" {
-            print(render_help());
-            return 0;
+pub fn main(
+    fs: &FsReadCap,
+    _proc_cap: &ProcessCap,
+    _env: &EnvCap,
+    args: List[String]
+) -> Result[Int, String] {
+    let opts: ColCliOpts = parse_cli_args(args);
+
+    if opts.help {
+        print(render_help());
+        process_exit(0);
+        return Ok(0);
+    }
+    if opts.version {
+        print(render_version());
+        process_exit(0);
+        return Ok(0);
+    }
+    if opts.mcp {
+        run_mcp_server(fs);
+        process_exit(0);
+        return Ok(0);
+    }
+    if opts.demo {
+        let res: FilterResult = run_demo_filter(opts.no_backspaces);
+        if opts.json {
+            print(render_json_telemetry(res));
+            process_exit(0);
+            return Ok(0);
         }
-        if arg == "-v" || arg == "--version" {
-            print(render_version());
-            return 0;
+        if opts.inspect {
+            print(render_inspection_report(res.stats));
+            process_exit(0);
+            return Ok(0);
         }
-        if arg == "--mcp" {
-            print("{\"jsonrpc\":\"2.0\",\"result\":{\"status\":\"ready\",\"tool\":\"oocol\"}}\n");
-            return 0;
-        }
-        i = i + 1;
+        print(res.output);
+        process_exit(0);
+        return Ok(0);
     }
 
-    print("oocol: sovereign capability-bounded utility ready\n");
-    return 0;
+    let mut content: String = "";
+    if chars_len(opts.file_path) > 0 && opts.file_path != "-" {
+        let r: Result[String, String] = read_file(fs, opts.file_path);
+        if !r.is_ok() {
+            print("oocol: cannot open '" + opts.file_path + "' for reading\n");
+            process_exit(1);
+            return Ok(1);
+        }
+        content = match r { Ok(s) => s, Err(_) => "" };
+    } else {
+        content = read_all_stdin(fs);
+    }
+
+    let col_opts: ColOpts = make_col_opts(
+        opts.no_backspaces,
+        opts.pass_control,
+        opts.expand_tabs,
+        opts.compress_spaces,
+        opts.fine_half_lines,
+        opts.max_lines
+    );
+
+    let res: FilterResult = filter_text_with_stats(content, col_opts);
+
+    if opts.json {
+        print(render_json_telemetry(res));
+        process_exit(0);
+        return Ok(0);
+    }
+    if opts.inspect {
+        print(render_inspection_report(res.stats));
+        process_exit(0);
+        return Ok(0);
+    }
+
+    print(res.output);
+    process_exit(0);
+    return Ok(0);
 }

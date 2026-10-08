@@ -1,0 +1,100 @@
+// # oocol Command Line Options Parser
+//
+// Logline: Parses command-line flags, buffer sizes, and operation mode switches.
+//
+// Setup: Decodes standard POSIX col flags into strongly typed filter specifications.
+//
+// Beats:
+//   1. Declare ColCliOpts structure encapsulating options and operand paths.
+//   2. Parse flags for backspaces, control sequences, and tabs.
+//   3. Extract numerical line buffer limits.
+//   4. Supply initialized default option records.
+
+import "ipc/json_field.oo";
+
+pub type ColCliOpts = struct {
+    file_path: String,
+    no_backspaces: Bool,
+    pass_control: Bool,
+    expand_tabs: Bool,
+    compress_spaces: Bool,
+    fine_half_lines: Bool,
+    max_lines: Int,
+    inspect: Bool,
+    demo: Bool,
+    json: Bool,
+    mcp: Bool,
+    help: Bool,
+    version: Bool
+};
+
+pub fn make_default_cli_opts() -> ColCliOpts {
+    return ColCliOpts {
+        file_path: "",
+        no_backspaces: false,
+        pass_control: false,
+        expand_tabs: false,
+        compress_spaces: false,
+        fine_half_lines: false,
+        max_lines: 128,
+        inspect: false,
+        demo: false,
+        json: false,
+        mcp: false,
+        help: false,
+        version: false
+    };
+}
+
+pub fn parse_cli_args(args: List[String]) -> ColCliOpts {
+    let mut opts: ColCliOpts = make_default_cli_opts();
+    let num_args: Int = list_len(args);
+    let mut i: Int = 0;
+
+    while i < num_args {
+        let arg: String = list_get(args, i);
+
+        if arg == "-h" || arg == "--help" {
+            opts.help = true;
+        } else if arg == "-V" || arg == "-v" || arg == "--version" {
+            opts.version = true;
+        } else if arg == "--mcp" {
+            opts.mcp = true;
+        } else if arg == "--demo" {
+            opts.demo = true;
+        } else if arg == "--json" {
+            opts.json = true;
+        } else if arg == "--inspect" {
+            opts.inspect = true;
+        } else if arg == "-b" || arg == "--no-backspaces" {
+            opts.no_backspaces = true;
+        } else if arg == "-f" || arg == "--fine" {
+            opts.fine_half_lines = true;
+        } else if arg == "-p" || arg == "--pass" {
+            opts.pass_control = true;
+        } else if arg == "-x" || arg == "--spaces" {
+            opts.expand_tabs = true;
+        } else if arg == "-h" || arg == "--tabs" {
+            opts.compress_spaces = true;
+        } else if str_starts_with(arg, "-l") {
+            let mut l_str: String = "";
+            if chars_len(arg) > 2 {
+                l_str = str_slice(arg, 2, chars_len(arg));
+            } else if i + 1 < num_args {
+                i = i + 1;
+                l_str = list_get(args, i);
+            }
+            if chars_len(l_str) > 0 {
+                opts.max_lines = parse_int(l_str, 128);
+            }
+        } else if !str_starts_with(arg, "-") {
+            if chars_len(opts.file_path) == 0 {
+                opts.file_path = arg;
+            }
+        }
+
+        i = i + 1;
+    }
+
+    return opts;
+}

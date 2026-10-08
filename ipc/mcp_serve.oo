@@ -1,0 +1,169 @@
+// # Model Context Protocol (MCP) Server for oocol
+//
+// Logline: JSON-RPC 2.0 stdio server providing sovereign escape filtering, overstrike stripping, and manpage cleaning.
+//
+// Setup: Demands FsReadCap to service streaming agent tool invocations over standard input.
+//
+// Beats:
+//   1. Handle MCP initialize handshake with server metadata.
+//   2. Expose tools/list catalogue with five sovereign terminal filter tools.
+//   3. Dispatch tools/call for filter, strip_backspaces, clean_man, tab_convert, and inspect.
+//   4. Deliver streaming JSON-RPC responses over standard output.
+
+import "core/col_types.oo";
+import "core/col_engine.oo";
+import "render/col_theme.oo";
+import "ipc/json_field.oo";
+
+fn build_error(id: String, code: Int, msg: String) -> String {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"error\":{\"code\":" + to_string(code) + ",\"message\":\"" + json_escape(msg) + "\"}}\n";
+}
+
+fn build_tool_result(id: String, text: String) -> String {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"" + json_escape(text) + "\"}]}}\n";
+}
+
+pub fn render_mcp_init(id: String) -> String {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"oocol\",\"version\":\"0.2.0\"}}}\n";
+}
+
+pub fn render_mcp_tools_list(id: String) -> String {
+    let mut out: String = "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"tools\":[";
+    out = out + "{\"name\":\"col_filter\",\"description\":\"Filter backspaces, half-line feeds, and tab stops from text buffer or file.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"},\"no_backspaces\":{\"type\":\"boolean\"},\"expand_tabs\":{\"type\":\"boolean\"},\"compress_spaces\":{\"type\":\"boolean\"},\"pass_control\":{\"type\":\"boolean\"}},\"required\":[]}},";
+    out = out + "{\"name\":\"col_strip_backspaces\",\"description\":\"Strip all backspaces and resolve overstrike characters from terminal output.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"}},\"required\":[]}},";
+    out = out + "{\"name\":\"col_clean_man\",\"description\":\"Clean formatted groff/nroff manual page text into clean human-readable plain text.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"}},\"required\":[]}},";
+    out = out + "{\"name\":\"col_tab_convert\",\"description\":\"Convert between tab stops and space runs across lines.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"},\"expand_tabs\":{\"type\":\"boolean\"},\"compress_spaces\":{\"type\":\"boolean\"}},\"required\":[]}},";
+    out = out + "{\"name\":\"col_inspect\",\"description\":\"Inspect text buffer and report backspaces, overstrike density, and tab stop metrics.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"}},\"required\":[]}}";
+    out = out + "]}}\n";
+    return out;
+}
+
+fn resolve_payload(fs: &FsReadCap, text: String, path: String) -> Result[String, String] {
+    if chars_len(text) > 0 {
+        return Ok(text);
+    }
+    if chars_len(path) > 0 {
+        let r: Result[String, String] = read_file(fs, path);
+        if !r.is_ok() {
+            return Err("oocol: cannot read file '" + path + "'");
+        }
+        return Ok(match r { Ok(s) => s, Err(_) => "" });
+    }
+    return Err("oocol: neither text nor path provided");
+}
+
+pub fn handle_mcp_call(
+    fs: &FsReadCap,
+    id: String,
+    tool_name: String,
+    req: String
+) -> String {
+    let text_in: String = extract_json_str(req, "text");
+    let path_in: String = extract_json_str(req, "path");
+
+    let r: Result[String, String] = resolve_payload(fs, text_in, path_in);
+    if !r.is_ok() {
+        return build_error(id, -32602, match r { Ok(_) => "", Err(e) => e });
+    }
+    let payload: String = match r { Ok(s) => s, Err(_) => "" };
+
+    if tool_name == "col_filter" {
+        let mut opts: ColOpts = make_default_col_opts();
+        let nb_s: String = extract_json_str(req, "no_backspaces");
+        if nb_s == "true" { opts.no_backspaces = true; }
+        let et_s: String = extract_json_str(req, "expand_tabs");
+        if et_s == "true" { opts.expand_tabs = true; }
+        let cs_s: String = extract_json_str(req, "compress_spaces");
+        if cs_s == "true" { opts.compress_spaces = true; }
+        let pc_s: String = extract_json_str(req, "pass_control");
+        if pc_s == "true" { opts.pass_control = true; }
+
+        let filtered: String = filter_text(payload, opts);
+        return build_tool_result(id, filtered);
+    }
+
+    if tool_name == "col_strip_backspaces" {
+        let cleaned: String = strip_backspaces(payload);
+        return build_tool_result(id, cleaned);
+    }
+
+    if tool_name == "col_clean_man" {
+        let cleaned: String = clean_man_page(payload);
+        return build_tool_result(id, cleaned);
+    }
+
+    if tool_name == "col_tab_convert" {
+        let mut opts: ColOpts = make_default_col_opts();
+        let et_s: String = extract_json_str(req, "expand_tabs");
+        if et_s == "true" { opts.expand_tabs = true; }
+        let cs_s: String = extract_json_str(req, "compress_spaces");
+        if cs_s == "true" { opts.compress_spaces = true; }
+
+        let converted: String = filter_text(payload, opts);
+        return build_tool_result(id, converted);
+    }
+
+    if tool_name == "col_inspect" {
+        let mut opts: ColOpts = make_default_col_opts();
+        let res: FilterResult = filter_text_with_stats(payload, opts);
+        let report: String = render_inspection_report(res.stats) + "\n" + render_json_telemetry(res);
+        return build_tool_result(id, report);
+    }
+
+    return build_error(id, -32601, "Unknown tool: " + tool_name);
+}
+
+pub fn handle_mcp_message(fs: &FsReadCap, req: String) -> String {
+    let id_str: String = extract_json_str(req, "id");
+    let id: String = if chars_len(id_str) > 0 { "\"" + id_str + "\"" } else { "1" };
+    let method: String = extract_json_str(req, "method");
+
+    if method == "initialize" {
+        return render_mcp_init(id);
+    }
+    if method == "notifications/initialized" {
+        return "";
+    }
+    if method == "tools/list" {
+        return render_mcp_tools_list(id);
+    }
+    if method == "tools/call" {
+        let tool_name: String = extract_json_str(req, "name");
+        return handle_mcp_call(fs, id, tool_name, req);
+    }
+    if method == "shutdown" {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":null}\n";
+    }
+    return build_error(id, -32601, "Method not found: " + method);
+}
+
+pub fn run_mcp_server(fs: &FsReadCap) {
+    let mut buf: String = "";
+    let mut running: Bool = true;
+    while running {
+        let r: Result[String, String] = oo_read_stdin_chunk(fs, 4096);
+        if !r.is_ok() {
+            running = false;
+        } else {
+            let chunk: String = match r { Ok(s) => s, Err(_) => "" };
+            if chars_len(chunk) == 0 {
+                running = false;
+            } else {
+                buf = buf + chunk;
+                let mut nl_pos: Int = str_index_of(buf, "\n");
+                while nl_pos >= 0 {
+                    let line: String = str_slice(buf, 0, nl_pos);
+                    buf = str_slice(buf, nl_pos + 1, chars_len(buf));
+                    let trimmed: String = str_trim(line);
+                    if chars_len(trimmed) > 0 {
+                        let resp: String = handle_mcp_message(fs, trimmed);
+                        if chars_len(resp) > 0 {
+                            print(resp);
+                        }
+                    }
+                    nl_pos = str_index_of(buf, "\n");
+                }
+            }
+        }
+    }
+}

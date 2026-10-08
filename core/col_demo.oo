@@ -1,0 +1,41 @@
+// # oocol Demonstration Fixtures
+//
+// Logline: Synthetic overstrike, underline, tab, and manual page fixtures for validation and demo modes.
+//
+// Setup: Prepares representative terminal artifacts exercising character cell overstrike resolution.
+//
+// Beats:
+//   1. Build bold overstrike fixture string.
+//   2. Build underline overstrike fixture string.
+//   3. Build tab stop alignment fixture.
+//   4. Build synthetic groff man page header fixture.
+
+import "core/col_types.oo";
+import "core/col_engine.oo";
+
+pub fn build_demo_bold_raw() -> String {
+    return "T\bTh\bhi\bis\bs i\bis\bs b\bbo\bol\bld\bd\n";
+}
+
+pub fn build_demo_underline_raw() -> String {
+    return "_\bu_\bn_\bd_\be_\br_\bl_\bi_\bn_\be\bd\n";
+}
+
+pub fn build_demo_tab_raw() -> String {
+    return "col1\tcol2\tcol3\n";
+}
+
+pub fn build_demo_manpage_raw() -> String {
+    return "N\bNA\bAM\bME\bE\n"
+        + "     o\boo\boc\bco\bol\bl - reverse line feed filter\n\n"
+        + "S\bSY\bYN\bNO\bOP\bPS\bSI\bIS\bS\n"
+        + "     o\boo\boc\bco\bol\bl [-\b-b\bbf\bfp\bpx\bx] [-\b-l\bl _\bl_\bi_\bn_\be_\bs]\n";
+}
+
+pub fn run_demo_filter(no_backspaces: Bool) -> FilterResult {
+    let mut opts: ColOpts = make_default_col_opts();
+    opts.no_backspaces = no_backspaces;
+    opts.expand_tabs = true;
+    let sample: String = build_demo_bold_raw() + build_demo_underline_raw() + build_demo_manpage_raw();
+    return filter_text_with_stats(sample, opts);
+}

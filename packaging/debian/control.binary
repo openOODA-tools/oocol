@@ -1,0 +1,11 @@
+Package: oocol
+Version: 0.2.0-1
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: openOODA-tools <ops@openooda.org>
+Depends: libc6
+Description: ESCAPE FILTER
+ Reverse line feed filter removing backspaces and half-line feeds from terminal output.
+ Capability-bounded openOODA utility with zero ambient authority,
+ terminal overstrike cleanup, and native Model Context Protocol (MCP) surface.

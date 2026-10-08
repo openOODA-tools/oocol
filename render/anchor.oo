@@ -1,0 +1,35 @@
+// # oocol Render Subsystem Verification Anchor
+//
+// Logline: Verification anchor certifying output formatting, inspection reports, and JSON telemetry streams.
+//
+// Setup: Validates renderers against precomputed filter statistics fixtures.
+//
+// Beats:
+//   1. Assert summary rendering format.
+//   2. Assert inspection table generation.
+//   3. Validate JSON telemetry schema.
+//   4. Export verify_render_subsystem for test runners.
+
+import "core/col_types.oo";
+import "render/col_theme.oo";
+
+pub fn verify_render_subsystem() -> Bool {
+    let stats: ColStats = make_col_stats(100, 80, 10, 5, 2, 1);
+    let summary: String = render_filter_summary(stats);
+    if !str_contains(summary, "Backspaces removed:") || !str_contains(summary, "Overstrikes resolved:") {
+        return false;
+    }
+
+    let report: String = render_inspection_report(stats);
+    if !str_contains(report, "Buffer Inspection Report") {
+        return false;
+    }
+
+    let res: FilterResult = make_filter_result("test output\n", stats);
+    let json_out: String = render_json_telemetry(res);
+    if !str_contains(json_out, "\"tool\":\"oocol\"") || !str_contains(json_out, "\"backspaces_removed\":10") {
+        return false;
+    }
+
+    return true;
+}
